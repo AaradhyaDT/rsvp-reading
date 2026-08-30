@@ -19,17 +19,24 @@
   import Settings from './lib/components/Settings.svelte';
   import TextInput from './lib/components/TextInput.svelte';
   import ProgressBar from './lib/components/ProgressBar.svelte';
+  import NotesLibrary from './lib/components/NotesLibrary.svelte';
+  import { getNotesLibrary } from './lib/notes-loader.js';
   import { extractWordFrame } from './lib/rsvp-utils.js';
 
   // State
   let frameWordCount = 1;
-  let text = `Rapid serial visual presentation (RSVP) is a scientific method for studying the timing of vision. In RSVP, a sequence of stimuli is shown to an observer at one location in their visual field. This technique has been adapted for speed reading applications, where words are displayed one at a time at a fixed point, eliminating the need for eye movements and potentially increasing reading speed significantly.`;
+  let text = ``;
   let words = [];
   let currentWordIndex = 0;
   let isPlaying = false;
   let isPaused = false;
   let showSettings = false;
   let showTextInput = false;
+  let showNotesLibrary = false;
+  let currentSubjectId = 'O&M_markdown';
+  let currentChapterId = 'Chapter 1';
+  let currentNoteTitle = 'O&M — Chapter 1';
+  let notesLibrary = [];
   let progress = 0;
   let isLoadingFile = false;
   let loadingMessage = '';
@@ -150,6 +157,7 @@
 
   function handleTextApply(event) {
     text = event.detail.text;
+    currentNoteTitle = 'Custom Text';
     stop();
     parseText();
     showTextInput = false;
@@ -164,6 +172,7 @@
 
     try {
       text = await parseFile(file);
+      currentNoteTitle = file.name;
       stop();
       parseText();
       showTextInput = false;
@@ -174,6 +183,38 @@
       setTimeout(() => { loadingMessage = ''; }, 3000);
     } finally {
       isLoadingFile = false;
+    }
+  }
+
+  function handleSelectNote(event) {
+    const { subjectId, subjectName, chapterId, chapterName, text: newText } = event.detail;
+    currentSubjectId = subjectId;
+    currentChapterId = chapterId;
+    currentNoteTitle = `${subjectName.split(' ')[0]} — ${chapterName}`;
+    text = newText;
+    stop();
+    parseText();
+    showNotesLibrary = false;
+  }
+
+  function changeChapter(offset) {
+    if (!notesLibrary || !notesLibrary.length) return;
+    const sub = notesLibrary.find(s => s.id === currentSubjectId);
+    if (!sub || !sub.chapters || !sub.chapters.length) return;
+    const currentIndex = sub.chapters.findIndex(c => c.id === currentChapterId);
+    if (currentIndex === -1) return;
+    const newIndex = currentIndex + offset;
+    if (newIndex >= 0 && newIndex < sub.chapters.length) {
+      const ch = sub.chapters[newIndex];
+      handleSelectNote({
+        detail: {
+          subjectId: sub.id,
+          subjectName: sub.name,
+          chapterId: ch.id,
+          chapterName: ch.name,
+          text: ch.getText()
+        }
+      });
     }
   }
 
@@ -276,7 +317,8 @@
         if (showJumpTo) {
           showJumpTo = false;
           jumpToValue = '';
-        } else if (showSettings || showTextInput) {
+        } else if (showNotesLibrary || showSettings || showTextInput) {
+          showNotesLibrary = false;
           showSettings = false;
           showTextInput = false;
         } else if (showSavedSessionPrompt) {
@@ -291,8 +333,14 @@
           }
         }
         break;
+      case 'KeyN':
+        if (!isPlaying && !showSettings && !showTextInput && !showJumpTo) {
+          e.preventDefault();
+          showNotesLibrary = !showNotesLibrary;
+        }
+        break;
       case 'KeyG':
-        if (!isPlaying && !showSettings && !showTextInput) {
+        if (!isPlaying && !showSettings && !showTextInput && !showNotesLibrary) {
           e.preventDefault();
           showJumpTo = !showJumpTo;
         }
@@ -329,8 +377,7 @@
   }
 
   onMount(() => {
-    parseText();
-    window.addEventListener('keydown', handleKeydown);
+    notesLibrary = getNotesLibrary();
 
     // Check for saved session
     if (hasSession()) {
@@ -338,7 +385,20 @@
       if (savedSessionInfo) {
         showSavedSessionPrompt = true;
       }
+    } else if (notesLibrary.length > 0) {
+      // Default to O&M Chapter 1
+      const om = notesLibrary.find(s => s.id === 'O&M_markdown') || notesLibrary[0];
+      if (om && om.chapters.length > 0) {
+        const ch1 = om.chapters.find(c => c.id === 'Chapter 1') || om.chapters[0];
+        currentSubjectId = om.id;
+        currentChapterId = ch1.id;
+        currentNoteTitle = `${om.name.split(' ')[0]} — ${ch1.name}`;
+        text = ch1.getText();
+      }
     }
+
+    parseText();
+    window.addEventListener('keydown', handleKeydown);
   });
 
   onDestroy(() => {
@@ -355,8 +415,19 @@
       <h1>RSVP Reader</h1>
       <div class="header-actions">
         <button
+          class="icon-btn notes-btn"
+          on:click={() => { showNotesLibrary = !showNotesLibrary; showSettings = false; showTextInput = false; showJumpTo = false; }}
+          title="Notes Library (N)"
+          class:active={showNotesLibrary}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
+          </svg>
+          <span class="notes-btn-text">Notes</span>
+        </button>
+        <button
           class="icon-btn"
-          on:click={() => { showJumpTo = !showJumpTo; showSettings = false; showTextInput = false; }}
+          on:click={() => { showJumpTo = !showJumpTo; showSettings = false; showTextInput = false; showNotesLibrary = false; }}
           title="Jump to word (G)"
           class:active={showJumpTo}
         >
@@ -376,8 +447,8 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; }}
-          title="Load Content"
+          on:click={() => { showTextInput = !showTextInput; showSettings = false; showJumpTo = false; showNotesLibrary = false; }}
+          title="Load Content / Upload File"
           class:active={showTextInput}
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -386,7 +457,7 @@
         </button>
         <button
           class="icon-btn"
-          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; }}
+          on:click={() => { showSettings = !showSettings; showTextInput = false; showJumpTo = false; showNotesLibrary = false; }}
           title="Settings"
           class:active={showSettings}
         >
@@ -399,6 +470,18 @@
   {/if}
 
   <!-- Panels -->
+  {#if showNotesLibrary && !isFocusMode}
+    <div class="panel-overlay">
+      <NotesLibrary
+        {currentSubjectId}
+        {currentChapterId}
+        {wordsPerMinute}
+        on:select={handleSelectNote}
+        on:close={() => showNotesLibrary = false}
+      />
+    </div>
+  {/if}
+
   {#if showTextInput && !isFocusMode}
     <div class="panel-overlay">
       <TextInput
@@ -411,7 +494,6 @@
       />
     </div>
   {/if}
-
 
   {#if showSettings && !isFocusMode}
     <div class="panel-overlay">
@@ -472,6 +554,18 @@
     </div>
   {/if}
 
+  <!-- Active Note Indicator -->
+  {#if currentNoteTitle && !isFocusMode}
+    <div class="active-note-bar">
+      <button class="ch-nav-btn" on:click={() => changeChapter(-1)} title="Previous Chapter">‹</button>
+      <button class="current-note-pill" on:click={() => { showNotesLibrary = true; showSettings = false; showTextInput = false; showJumpTo = false; }}>
+        <span class="note-tag">NOTE</span>
+        <span class="note-title-text">{currentNoteTitle}</span>
+      </button>
+      <button class="ch-nav-btn" on:click={() => changeChapter(1)} title="Next Chapter">›</button>
+    </div>
+  {/if}
+
   <!-- Main Display -->
   <div class="display-area">
     <RSVPDisplay
@@ -516,6 +610,7 @@
       <div class="shortcuts desktop-only">
         <kbd>Space</kbd> Play
         <kbd>Esc</kbd> Exit
+        <kbd>N</kbd> Notes
         <kbd>↑↓</kbd> Speed
         <kbd>←→</kbd> Skip
         <kbd>G</kbd> Jump
@@ -615,6 +710,100 @@
   .icon-btn svg {
     width: 20px;
     height: 20px;
+  }
+
+  .notes-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.85rem;
+    color: #eee;
+    border-color: #444;
+    background: #141414;
+  }
+
+  .notes-btn:hover {
+    border-color: #ff4444;
+    color: #fff;
+  }
+
+  .notes-btn.active {
+    background: #ff4444;
+    border-color: #ff4444;
+    color: #fff;
+  }
+
+  .notes-btn-text {
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .active-note-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0.25rem 0 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .current-note-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #151515;
+    border: 1px solid #333;
+    color: #fff;
+    padding: 0.35rem 0.85rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    max-width: 80vw;
+  }
+
+  .current-note-pill:hover {
+    border-color: #ff4444;
+    background: #1f1f1f;
+  }
+
+  .note-tag {
+    background: #ff4444;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .note-title-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #ddd;
+  }
+
+  .ch-nav-btn {
+    background: #151515;
+    border: 1px solid #333;
+    color: #aaa;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    line-height: 1;
+    transition: all 0.2s;
+  }
+
+  .ch-nav-btn:hover {
+    border-color: #ff4444;
+    color: #fff;
+    background: #222;
   }
 
   .panel-overlay {

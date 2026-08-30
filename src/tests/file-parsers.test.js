@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock file with arrayBuffer support
+// Mock file with arrayBuffer and text support
 function createMockFile(content, name, type) {
   const blob = new Blob([content], { type })
   return {
     name,
     type,
+    text: () => Promise.resolve(content),
     arrayBuffer: () => Promise.resolve(new ArrayBuffer(content.length))
   }
 }
@@ -27,7 +28,7 @@ import { parseFile, getSupportedExtensions } from '../lib/file-parsers.js'
 describe('getSupportedExtensions', () => {
   it('should return supported file extensions', () => {
     const extensions = getSupportedExtensions()
-    expect(extensions).toBe('.pdf,.epub')
+    expect(extensions).toBe('.pdf,.epub,.md,.markdown,.txt')
   })
 
   it('should include pdf extension', () => {
@@ -39,11 +40,21 @@ describe('getSupportedExtensions', () => {
     const extensions = getSupportedExtensions()
     expect(extensions).toContain('.epub')
   })
+
+  it('should include md extension', () => {
+    const extensions = getSupportedExtensions()
+    expect(extensions).toContain('.md')
+  })
+
+  it('should include txt extension', () => {
+    const extensions = getSupportedExtensions()
+    expect(extensions).toContain('.txt')
+  })
 })
 
 describe('parseFile', () => {
   it('should throw error for unsupported file types', async () => {
-    const file = createMockFile('content', 'test.txt', 'text/plain')
+    const file = createMockFile('content', 'test.xyz', 'application/octet-stream')
 
     await expect(parseFile(file)).rejects.toThrow('Unsupported file type')
   })
@@ -60,10 +71,16 @@ describe('parseFile', () => {
     await expect(parseFile(file)).rejects.toThrow('Unsupported file type')
   })
 
-  it('should handle files with uppercase extensions', async () => {
-    const file = createMockFile('content', 'test.TXT', 'text/plain')
+  it('should parse markdown files', async () => {
+    const file = createMockFile('# Chapter 1\n\nSome note content', 'notes.md', 'text/markdown')
+    const result = await parseFile(file)
+    expect(result).toContain('Chapter 1. Some note content')
+  })
 
-    await expect(parseFile(file)).rejects.toThrow('Unsupported file type: test.txt')
+  it('should parse text files', async () => {
+    const file = createMockFile('Simple text note', 'notes.txt', 'text/plain')
+    const result = await parseFile(file)
+    expect(result).toBe('Simple text note')
   })
 })
 

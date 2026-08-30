@@ -95,6 +95,8 @@ function cleanText(text) {
     .trim()
 }
 
+import { cleanMarkdownForRSVP } from './notes-loader.js'
+
 /**
  * Detect file type and parse accordingly
  * @param {File} file - The file to parse
@@ -107,6 +109,12 @@ export async function parseFile(file) {
     return parsePDF(file)
   } else if (fileName.endsWith('.epub')) {
     return parseEPUB(file)
+  } else if (fileName.endsWith('.md') || fileName.endsWith('.markdown')) {
+    const text = await file.text()
+    return cleanMarkdownForRSVP(text)
+  } else if (fileName.endsWith('.txt')) {
+    const text = await file.text()
+    return cleanText(text)
   } else {
     throw new Error(`Unsupported file type: ${fileName}`)
   }
@@ -117,5 +125,5 @@ export async function parseFile(file) {
  * @returns {string} Comma-separated list of supported extensions
  */
 export function getSupportedExtensions() {
-  return '.pdf,.epub'
+  return '.pdf,.epub,.md,.markdown,.txt'
 }
